@@ -104,7 +104,6 @@ class CSVPosterGUI:
 
     def set_light_theme(self):
         """Define um tema claro aleatório"""
-        
         light_theme = random.choice(self.light_themes)
         self.current_theme.set(light_theme)
         self.change_theme()
