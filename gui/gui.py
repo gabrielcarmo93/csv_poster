@@ -259,7 +259,6 @@ class CSVPosterGUI:
     def save_logs(self):
         """Salva os logs atuais em um arquivo"""
         try:
-            
             # Obter conteúdo dos logs
             content = self.log_text.get("1.0", "end")
             if not content.strip():
