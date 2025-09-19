@@ -313,7 +313,7 @@ Conteúdo dos Logs:
                 self.log_info_label.config(text="1 linha")
             else:
                 self.log_info_label.config(text=f"{line_count} linhas")
-        except:
+        except Exception:
             self.log_info_label.config(text="0 linhas")
 
     # =====================
