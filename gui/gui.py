@@ -56,6 +56,58 @@ class CSVPosterGUI:
         # Construir abas
         self.build_config_tab()
         self.build_log_tab()
+        
+        # Criar controles de upload (visíveis em todas as abas)
+        self.create_control_buttons()
+
+    def create_control_buttons(self):
+        """Cria os botões de controle de upload visíveis em todas as abas"""
+        # Frame principal para controles de upload
+        control_frame = ttk.LabelFrame(self.root, text="🎮 Controles de Upload", bootstyle="primary")
+        control_frame.pack(fill="x", padx=10, pady=(5, 10))
+        
+        # Frame interno para organizar os botões
+        buttons_frame = ttk.Frame(control_frame)
+        buttons_frame.pack(pady=10, padx=10)
+        
+        # Botões de controle
+        self.start_button = ttk.Button(
+            buttons_frame, 
+            text="🚀 Iniciar", 
+            bootstyle="success-outline", 
+            command=self.start_posting,
+            width=12
+        )
+        self.start_button.pack(side="left", padx=(0, 10))
+        
+        self.pause_resume_button = ttk.Button(
+            buttons_frame, 
+            text="⏸️ Pausar", 
+            bootstyle="warning-outline", 
+            command=self.pause_resume_posting, 
+            state="disabled",
+            width=12
+        )
+        self.pause_resume_button.pack(side="left", padx=(0, 10))
+        
+        self.stop_button = ttk.Button(
+            buttons_frame, 
+            text="⏹️ Parar", 
+            bootstyle="danger-outline", 
+            command=self.stop_posting, 
+            state="disabled",
+            width=12
+        )
+        self.stop_button.pack(side="left", padx=(0, 10))
+        
+        # Label de status do upload
+        self.upload_status_label = ttk.Label(
+            buttons_frame, 
+            text="📊 Pronto para upload", 
+            bootstyle="info",
+            font=("Segoe UI", 9, "bold")
+        )
+        self.upload_status_label.pack(side="left", padx=10)
 
     def create_theme_menu(self):
         """Cria o menu superior para seleção de tema"""
@@ -238,18 +290,7 @@ class CSVPosterGUI:
         self.body_preview.configure(yscrollcommand=set_v_scrollbar, xscrollcommand=set_h_scrollbar)
         self.body_preview.bind('<Configure>', on_text_configure)
 
-        # Start e Stop buttons
-        buttons_frame = ttk.Frame(frame)
-        buttons_frame.grid(row=9, column=0, columnspan=2, pady=15, padx=5, sticky="w")
-        
-        self.start_button = ttk.Button(buttons_frame, text="🚀 Iniciar", bootstyle="success-outline", command=self.start_posting)
-        self.start_button.pack(side="left", padx=(0, 10))
-        
-        self.pause_resume_button = ttk.Button(buttons_frame, text="⏸️ Pausar", bootstyle="warning-outline", command=self.pause_resume_posting, state="disabled")
-        self.pause_resume_button.pack(side="left", padx=(0, 10))
-        
-        self.stop_button = ttk.Button(buttons_frame, text="⏹️ Parar", bootstyle="danger-outline", command=self.stop_posting, state="disabled")
-        self.stop_button.pack(side="left")
+        # Start e Stop buttons - moved to create_control_buttons method
 
     # =====================
     # Aba de Logs
@@ -613,11 +654,14 @@ Conteúdo dos Logs:
             self.start_button.config(state="normal", text="🚀 Iniciar")
             self.pause_resume_button.config(state="disabled", text="⏸️ Pausar")
             self.stop_button.config(state="disabled", text="⏹️ Parar")
+            self.upload_status_label.config(text="📊 Pronto para upload", bootstyle="info")
         elif self.upload_state == "running":
             self.start_button.config(state="disabled")
             self.pause_resume_button.config(state="normal", text="⏸️ Pausar")
             self.stop_button.config(state="normal", text="⏹️ Parar")
+            self.upload_status_label.config(text="🚀 Upload em execução...", bootstyle="success")
         elif self.upload_state == "paused":
             self.start_button.config(state="normal", text="▶️ Retomar")
             self.pause_resume_button.config(state="normal", text="▶️ Retomar")
             self.stop_button.config(state="normal", text="⏹️ Parar")
+            self.upload_status_label.config(text="⏸️ Upload pausado", bootstyle="warning")
