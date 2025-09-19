@@ -251,7 +251,6 @@ class CSVPosterGUI:
         self.log_text.delete("1.0", "end")
         self.update_log_info()
         # Usar timestamp direto para evitar recursão infinita na primeira limpeza
-        
         timestamp = datetime.now().strftime("[%d/%m/%Y %H:%M:%S]")
         self.log_text.insert("end", f"{timestamp} 🗑️ Logs limpos\n")
         self.log_text.see("end")
