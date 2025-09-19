@@ -25,6 +25,10 @@ class CSVPosterGUI:
         # Services (serão inicializados ao iniciar o envio)
         self.uploader_service = None
         self.auth_service = None
+        self.upload_thread = None
+        
+        # Upload state tracking
+        self.upload_state = "stopped"  # stopped, running, paused
 
         # Settings
         self.settings = Settings()
@@ -187,12 +191,65 @@ class CSVPosterGUI:
 
         # Body preview
         ttk.Label(frame, text="Body Preview (primeiras linhas do CSV):").grid(row=7, column=0, sticky="w", pady=(10,0), padx=5)
-        self.body_preview = ttk.Text(frame, height=10, width=80)
-        self.body_preview.grid(row=8, column=0, columnspan=4, padx=5, pady=5)
+        
+        # Frame para conter o Text widget e scrollbars
+        preview_frame = ttk.Frame(frame)
+        preview_frame.grid(row=8, column=0, columnspan=4, padx=5, pady=5, sticky="nsew")
+        
+        # Configurar grid para permitir expansão
+        frame.grid_rowconfigure(8, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+        preview_frame.grid_rowconfigure(0, weight=1)
+        preview_frame.grid_columnconfigure(0, weight=1)
+        
+        # Text widget
+        self.body_preview = ttk.Text(preview_frame, height=10, width=80, wrap="none")
+        self.body_preview.grid(row=0, column=0, sticky="nsew")
+        
+        # Scrollbar vertical (auto-hide)
+        v_scrollbar = ttk.Scrollbar(preview_frame, orient="vertical", command=self.body_preview.yview)
+        v_scrollbar.grid(row=0, column=1, sticky="ns")
+        
+        # Scrollbar horizontal (auto-hide)
+        h_scrollbar = ttk.Scrollbar(preview_frame, orient="horizontal", command=self.body_preview.xview)
+        h_scrollbar.grid(row=1, column=0, sticky="ew")
+        
+        # Configure scrollbars to auto-hide
+        def on_text_configure(event=None):
+            # Update scrollbars
+            self.body_preview.update_idletasks()
+            
+        def set_v_scrollbar(*args):
+            v_scrollbar.set(*args)
+            # Hide/show vertical scrollbar
+            if float(args[0]) <= 0.0 and float(args[1]) >= 1.0:
+                v_scrollbar.grid_remove()
+            else:
+                v_scrollbar.grid()
+                
+        def set_h_scrollbar(*args):
+            h_scrollbar.set(*args)
+            # Hide/show horizontal scrollbar
+            if float(args[0]) <= 0.0 and float(args[1]) >= 1.0:
+                h_scrollbar.grid_remove()
+            else:
+                h_scrollbar.grid()
+        
+        self.body_preview.configure(yscrollcommand=set_v_scrollbar, xscrollcommand=set_h_scrollbar)
+        self.body_preview.bind('<Configure>', on_text_configure)
 
-        # Start button
-        self.start_button = ttk.Button(frame, text="🚀 Iniciar Envio", bootstyle="success-outline", command=self.start_posting)
-        self.start_button.grid(row=9, column=0, pady=15, padx=5)
+        # Start e Stop buttons
+        buttons_frame = ttk.Frame(frame)
+        buttons_frame.grid(row=9, column=0, columnspan=2, pady=15, padx=5, sticky="w")
+        
+        self.start_button = ttk.Button(buttons_frame, text="🚀 Iniciar", bootstyle="success-outline", command=self.start_posting)
+        self.start_button.pack(side="left", padx=(0, 10))
+        
+        self.pause_resume_button = ttk.Button(buttons_frame, text="⏸️ Pausar", bootstyle="warning-outline", command=self.pause_resume_posting, state="disabled")
+        self.pause_resume_button.pack(side="left", padx=(0, 10))
+        
+        self.stop_button = ttk.Button(buttons_frame, text="⏹️ Parar", bootstyle="danger-outline", command=self.stop_posting, state="disabled")
+        self.stop_button.pack(side="left")
 
     # =====================
     # Aba de Logs
@@ -228,14 +285,44 @@ class CSVPosterGUI:
         )
         self.log_info_label.pack(side="right", padx=5)
         
-        # Área de texto dos logs
-        self.log_text = ttk.Text(self.log_frame, height=25, width=100)
-        self.log_text.pack(padx=5, pady=(0, 5), fill="both", expand=True)
+        # Área de texto dos logs com scrollbars
+        log_text_frame = ttk.Frame(self.log_frame)
+        log_text_frame.pack(padx=5, pady=(0, 5), fill="both", expand=True)
         
-        # Scrollbar para o texto dos logs
-        scrollbar = ttk.Scrollbar(self.log_frame, orient="vertical", command=self.log_text.yview)
-        self.log_text.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
+        # Configurar grid para expansão
+        log_text_frame.grid_rowconfigure(0, weight=1)
+        log_text_frame.grid_columnconfigure(0, weight=1)
+        
+        # Text widget para logs
+        self.log_text = ttk.Text(log_text_frame, height=25, width=100, wrap="word")
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+        
+        # Scrollbar vertical para logs (auto-hide)
+        log_v_scrollbar = ttk.Scrollbar(log_text_frame, orient="vertical", command=self.log_text.yview)
+        log_v_scrollbar.grid(row=0, column=1, sticky="ns")
+        
+        # Scrollbar horizontal para logs (auto-hide)
+        log_h_scrollbar = ttk.Scrollbar(log_text_frame, orient="horizontal", command=self.log_text.xview)
+        log_h_scrollbar.grid(row=1, column=0, sticky="ew")
+        
+        # Configure scrollbars to auto-hide
+        def set_log_v_scrollbar(*args):
+            log_v_scrollbar.set(*args)
+            # Hide/show vertical scrollbar
+            if float(args[0]) <= 0.0 and float(args[1]) >= 1.0:
+                log_v_scrollbar.grid_remove()
+            else:
+                log_v_scrollbar.grid()
+                
+        def set_log_h_scrollbar(*args):
+            log_h_scrollbar.set(*args)
+            # Hide/show horizontal scrollbar
+            if float(args[0]) <= 0.0 and float(args[1]) >= 1.0:
+                log_h_scrollbar.grid_remove()
+            else:
+                log_h_scrollbar.grid()
+        
+        self.log_text.configure(yscrollcommand=set_log_v_scrollbar, xscrollcommand=set_log_h_scrollbar)
 
     def log(self, msg):
         log_message(self.log_text, msg)
@@ -378,17 +465,26 @@ Conteúdo dos Logs:
         self.log(f"URL {'válida' if valid else 'inválida'}: {url}")
 
     # =====================
-    # Iniciar envio
+    # Iniciar/Parar envio
     # =====================
     def start_posting(self):
         if not self.csv_file:
             Messagebox.show_error("Selecione um CSV primeiro.", "Erro")
             return
 
+        # Se já existe um uploader_service em pausa, apenas retomar
+        if self.uploader_service and self.upload_state == "paused":
+            self.resume_posting()
+            return
+
         url = self.url_entry.get().strip()
         method = self.method_var.get()
         delimiter = self.delimiter_entry.get().strip() or ","
         concurrency = int(self.concurrency_entry.get().strip() or 10)
+
+        # Atualizar estado
+        self.upload_state = "running"
+        self.update_button_states()
 
         # Configurar AuthService se necessário
         token = None
@@ -416,5 +512,112 @@ Conteúdo dos Logs:
         # Troca aba ativa para logs
         self.notebook.select(self.log_frame)
 
+        # Iniciar o upload
+        self.uploader_service.start_upload()
+        
         # Inicia upload em thread separada
-        threading.Thread(target=self.uploader_service.start_upload, daemon=True).start()
+        self.upload_thread = threading.Thread(target=self.run_upload, daemon=True)
+        self.upload_thread.start()
+
+    def pause_resume_posting(self):
+        """Alterna entre pausar e retomar o upload"""
+        if not self.uploader_service:
+            return
+            
+        if self.upload_state == "running":
+            self.upload_state = "paused"
+            self.uploader_service.pause_upload()
+            self.pause_resume_button.config(text="▶️ Retomar")
+            self.log("⏸️ Pausando upload...")
+        elif self.upload_state == "paused":
+            self.upload_state = "running"
+            self.uploader_service.resume_upload()
+            self.pause_resume_button.config(text="⏸️ Pausar")
+            self.log("▶️ Retomando upload...")
+            
+            # CHAVE: Verificar se a thread ainda está viva, senão criar nova
+            if not self.upload_thread or not self.upload_thread.is_alive():
+                self.log("🔄 Thread terminou, criando nova para continuar o upload...")
+                self.upload_thread = threading.Thread(target=self.run_upload, daemon=True)
+                self.upload_thread.start()
+
+    def resume_posting(self):
+        """Retoma um upload pausado"""
+        if self.uploader_service and self.upload_state == "paused":
+            self.upload_state = "running"
+            self.uploader_service.resume_upload()
+            self.update_button_states()
+            
+            # CHAVE: Verificar se a thread ainda está viva, senão criar nova
+            if not self.upload_thread or not self.upload_thread.is_alive():
+                self.log("🔄 Thread terminou, criando nova para continuar o upload...")
+                self.upload_thread = threading.Thread(target=self.run_upload, daemon=True)
+                self.upload_thread.start()
+
+    def stop_posting(self):
+        """Para o envio em execução"""
+        if self.uploader_service and self.upload_state in ["running", "paused"]:
+            self.log("⏹️ Parando upload...")
+            self.upload_state = "stopped"
+            self.uploader_service.stop_upload()
+            
+            # Atualizar interface imediatamente
+            self.stop_button.config(text="⏳ Parando...", state="disabled")
+            
+            # Aguardar um pouco e restaurar botões
+            def restore_buttons():
+                import time
+                time.sleep(1)  # Dar tempo para as requests pararem
+                self.upload_state = "stopped"
+                self.update_button_states()
+                self.log("🛑 Upload interrompido")
+            
+            # Executar restauração em thread separada
+            threading.Thread(target=restore_buttons, daemon=True).start()
+
+    def run_upload(self):
+        """Executa o upload e restaura botões quando terminar"""
+        try:
+            self.uploader_service.run_upload()
+        except Exception as e:
+            self.log(f"❌ Erro durante o upload: {e}")
+        finally:
+            # Verificar estado final do uploader
+            current_idx, total_rows, progress = self.uploader_service.get_progress()
+            
+            if current_idx >= total_rows:
+                # Upload concluído
+                self.upload_state = "stopped"
+                self.uploader_service.current_index = 0  # Reset apenas quando completo
+                self.log("✅ Upload finalizado com sucesso!")
+                self.update_button_states()
+            elif self.uploader_service.state.value == "stopped":
+                # Upload foi parado manualmente
+                self.upload_state = "stopped"
+                self.log("🛑 Upload interrompido")
+                self.update_button_states()
+            elif self.uploader_service.state.value == "paused":
+                # Upload está pausado - NÃO fazer nada aqui, thread vai terminar
+                # mas o resume vai criar uma nova thread quando necessário
+                self.log(f"⏸️ Thread finalizou, upload pausado na linha {current_idx + 1}/{total_rows}")
+                # Manter estado pausado na GUI
+                self.upload_state = "paused"
+                self.update_button_states()
+            else:
+                # Outro estado, atualizar interface
+                self.update_button_states()
+    
+    def update_button_states(self):
+        """Atualiza o estado dos botões baseado no estado atual do upload"""
+        if self.upload_state == "stopped":
+            self.start_button.config(state="normal", text="🚀 Iniciar")
+            self.pause_resume_button.config(state="disabled", text="⏸️ Pausar")
+            self.stop_button.config(state="disabled", text="⏹️ Parar")
+        elif self.upload_state == "running":
+            self.start_button.config(state="disabled")
+            self.pause_resume_button.config(state="normal", text="⏸️ Pausar")
+            self.stop_button.config(state="normal", text="⏹️ Parar")
+        elif self.upload_state == "paused":
+            self.start_button.config(state="normal", text="▶️ Retomar")
+            self.pause_resume_button.config(state="normal", text="▶️ Retomar")
+            self.stop_button.config(state="normal", text="⏹️ Parar")
