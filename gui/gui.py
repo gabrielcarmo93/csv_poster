@@ -210,6 +210,15 @@ class CSVPosterGUI:
         )
         self.clear_logs_button.pack(side="left", padx=5)
         
+        # Botão para salvar logs
+        self.save_logs_button = ttk.Button(
+            log_controls_frame, 
+            text="💾 Salvar Logs", 
+            bootstyle="outline-info",
+            command=self.save_logs
+        )
+        self.save_logs_button.pack(side="left", padx=5)
+        
         # Informação sobre quantidade de linhas
         self.log_info_label = ttk.Label(
             log_controls_frame, 
@@ -231,11 +240,67 @@ class CSVPosterGUI:
         log_message(self.log_text, msg)
         self.update_log_info()
 
+    def log_with_level(self, msg, level="INFO"):
+        """Log com nível específico (INFO, WARNING, ERROR, SUCCESS, DEBUG)"""
+        from utils.logger import log_message_with_level
+        log_message_with_level(self.log_text, msg, level)
+        self.update_log_info()
+
     def clear_logs(self):
         """Limpa todos os logs da área de texto"""
         self.log_text.delete("1.0", "end")
         self.update_log_info()
-        self.log("🗑️ Logs limpos")
+        # Usar timestamp direto para evitar recursão infinita na primeira limpeza
+        from datetime import datetime
+        timestamp = datetime.now().strftime("[%d/%m/%Y %H:%M:%S]")
+        self.log_text.insert("end", f"{timestamp} 🗑️ Logs limpos\n")
+        self.log_text.see("end")
+        self.update_log_info()
+
+    def save_logs(self):
+        """Salva os logs atuais em um arquivo"""
+        try:
+            from datetime import datetime
+            import os
+            
+            # Obter conteúdo dos logs
+            content = self.log_text.get("1.0", "end")
+            if not content.strip():
+                Messagebox.show_warning("Não há logs para salvar.", "Aviso")
+                return
+            
+            # Criar diretório de logs se não existir
+            log_dir = "logs"
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            
+            # Nome do arquivo com timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"csv_poster_logs_{timestamp}.txt"
+            filepath = os.path.join(log_dir, filename)
+            
+            # Adicionar cabeçalho ao arquivo
+            header = f"""CSV Poster - Log Export
+======================
+Data/Hora: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
+Arquivo: {filename}
+
+Conteúdo dos Logs:
+------------------
+
+"""
+            
+            # Salvar arquivo
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(header + content)
+            
+            self.log(f"💾 Logs salvos em: {filepath}")
+            Messagebox.show_info(f"Logs salvos com sucesso em:\n{filepath}", "Logs Salvos")
+            
+        except Exception as e:
+            error_msg = f"❌ Erro ao salvar logs: {e}"
+            self.log(error_msg)
+            Messagebox.show_error(error_msg, "Erro")
 
     def update_log_info(self):
         """Atualiza a informação sobre quantidade de linhas nos logs"""
