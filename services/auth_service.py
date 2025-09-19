@@ -1,9 +1,13 @@
 # services/auth_service.py
 import time
 import requests
+import urllib3
 from clients.http_client import HTTPClient
 from models.token import Token
 from utils.logger import log_message
+
+# Desabilitar warnings de SSL quando verify=False
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class AuthService:
@@ -12,16 +16,41 @@ class AuthService:
     O token é renovado somente quando expirar ou se recebermos 401.
     """
 
-    def __init__(self, log_widget=None):
+    def __init__(self, auth_url=None, client_id=None, client_secret=None, token_json_path="$.access_token", logger=None, log_widget=None):
         self._cached_token = None
         self.http_client = HTTPClient()
+        self.auth_url = auth_url
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.token_json_path = token_json_path
+        self.expires_json_path = "$.expires_in"
+        self.logger = logger
         self.log_widget = log_widget
 
     def log(self, message):
-        if self.log_widget:
+        if self.logger:
+            self.logger(message)
+        elif self.log_widget:
             log_message(self.log_widget, message)
         else:
             print(message)
+
+    def get_token_sync(self):
+        """
+        Método síncrono para obter token, usado pela GUI.
+        Usa as configurações passadas no construtor.
+        """
+        if not all([self.auth_url, self.client_id, self.client_secret]):
+            self.log("❌ Configurações de autenticação incompletas")
+            return None
+            
+        return self.get_token(
+            self.auth_url, 
+            self.client_id, 
+            self.client_secret, 
+            self.token_json_path, 
+            self.expires_json_path
+        )
 
     def get_token(self, auth_url, client_id, client_secret, token_path="$.access_token", expires_path="$.expires_in"):
         """
@@ -39,7 +68,7 @@ class AuthService:
         }
 
         try:
-            response = requests.post(auth_url, data=payload, timeout=5)
+            response = requests.post(auth_url, data=payload, timeout=5, verify=False)
             response.raise_for_status()
             json_data = response.json()
             token_value = self.http_client.extract_token(json_data, token_path)
