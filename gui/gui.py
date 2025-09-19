@@ -360,7 +360,6 @@ Conteúdo dos Logs:
             return
         # Aqui só fazemos uma checagem rápida visual
         try:
-            
             resp = requests.head(url, timeout=5, verify=False)
             valid = 200 <= resp.status_code < 400
         except Exception:
