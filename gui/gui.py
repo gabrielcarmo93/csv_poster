@@ -5,12 +5,16 @@ from ttkbootstrap.dialogs import Messagebox
 from tkinter import filedialog
 import json
 import threading
-
+import random
+from utils.logger import log_message_with_level
 from utils.csv_utils import read_csv_preview
 from utils.logger import log_message
 from services.uploader_service import UploaderService
 from services.auth_service import AuthService
 from config import Settings
+from datetime import datetime
+import os
+import requests
 
 
 class CSVPosterGUI:
@@ -18,7 +22,6 @@ class CSVPosterGUI:
         self.root = root
         self.root.title("CSV to API Poster")
         self.csv_file = None
-
         # Services (serão inicializados ao iniciar o envio)
         self.uploader_service = None
         self.auth_service = None
@@ -101,14 +104,13 @@ class CSVPosterGUI:
 
     def set_light_theme(self):
         """Define um tema claro aleatório"""
-        import random
+        
         light_theme = random.choice(self.light_themes)
         self.current_theme.set(light_theme)
         self.change_theme()
 
     def set_dark_theme(self):
         """Define um tema escuro aleatório"""
-        import random
         dark_theme = random.choice(self.dark_themes)
         self.current_theme.set(dark_theme)
         self.change_theme()
@@ -242,7 +244,7 @@ class CSVPosterGUI:
 
     def log_with_level(self, msg, level="INFO"):
         """Log com nível específico (INFO, WARNING, ERROR, SUCCESS, DEBUG)"""
-        from utils.logger import log_message_with_level
+        
         log_message_with_level(self.log_text, msg, level)
         self.update_log_info()
 
@@ -251,7 +253,7 @@ class CSVPosterGUI:
         self.log_text.delete("1.0", "end")
         self.update_log_info()
         # Usar timestamp direto para evitar recursão infinita na primeira limpeza
-        from datetime import datetime
+        
         timestamp = datetime.now().strftime("[%d/%m/%Y %H:%M:%S]")
         self.log_text.insert("end", f"{timestamp} 🗑️ Logs limpos\n")
         self.log_text.see("end")
@@ -260,8 +262,7 @@ class CSVPosterGUI:
     def save_logs(self):
         """Salva os logs atuais em um arquivo"""
         try:
-            from datetime import datetime
-            import os
+            
             
             # Obter conteúdo dos logs
             content = self.log_text.get("1.0", "end")
@@ -363,7 +364,7 @@ Conteúdo dos Logs:
             return
         # Aqui só fazemos uma checagem rápida visual
         try:
-            import requests
+            
             resp = requests.head(url, timeout=5, verify=False)
             valid = 200 <= resp.status_code < 400
         except Exception:
