@@ -32,6 +32,9 @@ class CSVPosterGUI:
 
         # Settings
         self.settings = Settings()
+        
+        # Arquivo para salvar configurações do usuário
+        self.user_config_file = "user_config.json"
 
         # Variables
         self.method_var = ttk.StringVar(value=getattr(self.settings, "METHOD", "POST"))
@@ -41,6 +44,9 @@ class CSVPosterGUI:
         self.current_theme = ttk.StringVar(value="darkly")
         self.light_themes = ["cosmo", "flatly", "journal", "litera", "lumen", "minty", "pulse", "sandstone", "united", "yeti"]
         self.dark_themes = ["darkly", "cyborg", "superhero", "vapor"]
+        
+        # Carregar configurações salvas do usuário
+        self.load_user_config()
 
         # Criar menu superior para seleção de tema
         self.create_theme_menu()
@@ -57,14 +63,20 @@ class CSVPosterGUI:
         self.build_config_tab()
         self.build_log_tab()
         
-        # Criar controles de upload (visíveis em todas as abas)
+        # Criar controles de upload (visíveis em todas as abas) - DEPOIS das abas
         self.create_control_buttons()
+        
+        # Configurar evento para salvar configurações ao fechar
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Mostrar mensagem informativa sobre persistência (após criar logs)
+        self.root.after(100, self.show_welcome_message)
 
     def create_control_buttons(self):
         """Cria os botões de controle de upload visíveis em todas as abas"""
-        # Frame principal para controles de upload
+        # Frame principal para controles de upload na parte inferior
         control_frame = ttk.LabelFrame(self.root, text="🎮 Controles de Upload", bootstyle="primary")
-        control_frame.pack(fill="x", padx=10, pady=(5, 10))
+        control_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 10))
         
         # Frame interno para organizar os botões
         buttons_frame = ttk.Frame(control_frame)
@@ -108,6 +120,127 @@ class CSVPosterGUI:
             font=("Segoe UI", 9, "bold")
         )
         self.upload_status_label.pack(side="left", padx=10)
+
+    def load_user_config(self):
+        """Carrega as configurações salvas do usuário"""
+        try:
+            if os.path.exists(self.user_config_file):
+                with open(self.user_config_file, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                
+                # Restaurar configurações
+                self.current_theme.set(config.get("theme", "darkly"))
+                self.method_var.set(config.get("method", "POST"))
+                self.auth_var.set(config.get("auth_enabled", False))
+                
+                # Aplicar tema carregado
+                try:
+                    self.root.style.theme_use(self.current_theme.get())
+                except Exception:
+                    # Se o tema não existir, usar o padrão
+                    self.current_theme.set("darkly")
+                    self.root.style.theme_use("darkly")
+                
+                # Marcar que temos configurações para aplicar depois que os widgets forem criados
+                self.saved_config = config
+                
+        except Exception as e:
+            # Se houver erro ao carregar, usar configurações padrão
+            self.saved_config = {}
+
+    def apply_saved_config(self):
+        """Aplica as configurações salvas aos widgets após eles serem criados"""
+        if not hasattr(self, 'saved_config'):
+            return
+            
+        config = self.saved_config
+        
+        try:
+            # Configurações principais
+            if "endpoint_url" in config:
+                self.url_entry.delete(0, "end")
+                self.url_entry.insert(0, config["endpoint_url"])
+            
+            if "concurrency" in config:
+                self.concurrency_entry.delete(0, "end")
+                self.concurrency_entry.insert(0, str(config["concurrency"]))
+            
+            if "delimiter" in config:
+                self.delimiter_entry.delete(0, "end")
+                self.delimiter_entry.insert(0, config["delimiter"])
+            
+            # Configurações de autenticação
+            if "auth_url" in config:
+                self.auth_url_entry.delete(0, "end")
+                self.auth_url_entry.insert(0, config["auth_url"])
+            
+            if "client_id" in config:
+                self.client_id_entry.delete(0, "end")
+                self.client_id_entry.insert(0, config["client_id"])
+            
+            # Carregar client_secret se disponível
+            if "client_secret" in config:
+                self.client_secret_entry.delete(0, "end")
+                self.client_secret_entry.insert(0, config["client_secret"])
+            
+            if "token_path" in config:
+                self.token_path_entry.delete(0, "end")
+                self.token_path_entry.insert(0, config["token_path"])
+            
+            # Mostrar/ocultar campos de autenticação baseado na configuração salva
+            self.toggle_auth_fields()
+            
+        except Exception as e:
+            pass  # Se houver erro, apenas usar valores padrão
+
+    def save_user_config(self):
+        """Salva as configurações atuais do usuário"""
+        try:
+            # Verificar se os widgets foram criados antes de tentar acessá-los
+            if not hasattr(self, 'url_entry'):
+                return  # Widgets ainda não foram criados
+                
+            config = {
+                "theme": self.current_theme.get(),
+                "endpoint_url": self.url_entry.get().strip() if hasattr(self, 'url_entry') else "",
+                "method": self.method_var.get(),
+                "concurrency": self.concurrency_entry.get().strip() if hasattr(self, 'concurrency_entry') else "10",
+                "delimiter": self.delimiter_entry.get().strip() if hasattr(self, 'delimiter_entry') else ",",
+                "auth_enabled": self.auth_var.get(),
+                "auth_url": self.auth_url_entry.get().strip() if hasattr(self, 'auth_url_entry') else "",
+                "client_id": self.client_id_entry.get().strip() if hasattr(self, 'client_id_entry') else "",
+                "client_secret": self.client_secret_entry.get().strip() if hasattr(self, 'client_secret_entry') else "",
+                "token_path": self.token_path_entry.get().strip() if hasattr(self, 'token_path_entry') else "$.access_token",
+                "last_updated": datetime.now().isoformat()
+            }
+            
+            with open(self.user_config_file, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+                
+        except Exception as e:
+            # Se houver erro ao salvar, apenas continuar sem salvar
+            pass
+
+    def on_closing(self):
+        """Chamado quando a aplicação está sendo fechada"""
+        # Salvar configurações do usuário
+        self.save_user_config()
+        
+        # Parar upload se estiver em execução
+        if self.uploader_service and self.upload_state in ["running", "paused"]:
+            self.uploader_service.stop_upload()
+        
+        # Fechar aplicação
+        self.root.destroy()
+    
+    def show_welcome_message(self):
+        """Mostra mensagem de boas-vindas com informações sobre persistência"""
+        if hasattr(self, 'saved_config') and self.saved_config:
+            self.log("🔄 Configurações anteriores carregadas automaticamente")
+            self.log("💡 Suas configurações são salvas automaticamente (exceto arquivo CSV)")
+        else:
+            self.log("👋 Bem-vindo ao CSV Poster!")
+            self.log("💡 Suas configurações serão salvas automaticamente para próxima vez")
 
     def create_theme_menu(self):
         """Cria o menu superior para seleção de tema"""
@@ -154,9 +287,15 @@ class CSVPosterGUI:
         try:
             new_theme = self.current_theme.get()
             self.root.style.theme_use(new_theme)
-            self.log(f"🎨 Tema alterado para: {new_theme}")
+            # Só fazer log se os widgets de log já existirem
+            if hasattr(self, 'log_text'):
+                self.log(f"🎨 Tema alterado para: {new_theme}")
+            # Salvar configuração automaticamente (só se widgets estiverem criados)
+            if hasattr(self, 'url_entry'):
+                self.save_user_config()
         except Exception as e:
-            self.log(f"❌ Erro ao alterar tema: {e}")
+            if hasattr(self, 'log_text'):
+                self.log(f"❌ Erro ao alterar tema: {e}")
 
     def set_light_theme(self):
         """Define um tema claro aleatório"""
@@ -181,6 +320,7 @@ class CSVPosterGUI:
         self.url_entry = ttk.Entry(frame, width=50, bootstyle="info")
         self.url_entry.grid(row=0, column=1, padx=5, pady=5)
         self.url_entry.insert(0, getattr(self.settings, "ENDPOINT_URL", ""))
+        self.url_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
         self.validate_button = ttk.Button(frame, text="Validar Endpoint", bootstyle="outline-success", command=lambda: self.validate_url(self.url_entry, "main"))
         self.validate_button.grid(row=0, column=2, padx=5)
         self.status_label = ttk.Label(frame, text="", width=15)
@@ -190,18 +330,19 @@ class CSVPosterGUI:
         ttk.Label(frame, text="Método HTTP:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         method_frame = ttk.Frame(frame)
         method_frame.grid(row=1, column=1, sticky="w", padx=5)
-        ttk.Radiobutton(method_frame, text="POST", variable=self.method_var, value="POST", bootstyle="info").pack(side="left", padx=5)
-        ttk.Radiobutton(method_frame, text="GET", variable=self.method_var, value="GET", bootstyle="info").pack(side="left", padx=5)
+        ttk.Radiobutton(method_frame, text="POST", variable=self.method_var, value="POST", bootstyle="info", command=self.save_user_config).pack(side="left", padx=5)
+        ttk.Radiobutton(method_frame, text="GET", variable=self.method_var, value="GET", bootstyle="info", command=self.save_user_config).pack(side="left", padx=5)
 
         # Concorrência
         ttk.Label(frame, text="Concorrência:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.concurrency_entry = ttk.Entry(frame, width=10, bootstyle="warning")
         self.concurrency_entry.insert(0, str(getattr(self.settings, "CONCURRENCY", 10)))
         self.concurrency_entry.grid(row=2, column=1, sticky="w", padx=5)
+        self.concurrency_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
 
         # Autenticação
         self.auth_check = ttk.Checkbutton(
-            frame, text="Requer Autenticação", variable=self.auth_var, command=self.toggle_auth_fields, bootstyle="round-toggle"
+            frame, text="Requer Autenticação", variable=self.auth_var, command=self.toggle_auth_fields_and_save, bootstyle="round-toggle"
         )
         self.auth_check.grid(row=3, column=0, columnspan=2, sticky="w", padx=5, pady=10)
 
@@ -211,6 +352,7 @@ class CSVPosterGUI:
         ttk.Label(self.auth_frame, text="Auth URL:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
         self.auth_url_entry = ttk.Entry(self.auth_frame, width=40, bootstyle="info")
         self.auth_url_entry.grid(row=0, column=1, padx=5, pady=2)
+        self.auth_url_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
         self.auth_validate_button = ttk.Button(self.auth_frame, text="Validar Auth URL", bootstyle="outline-success", command=lambda: self.validate_url(self.auth_url_entry, "auth"))
         self.auth_validate_button.grid(row=0, column=2, padx=5)
         self.auth_status_label = ttk.Label(self.auth_frame, text="", width=15)
@@ -219,13 +361,17 @@ class CSVPosterGUI:
         ttk.Label(self.auth_frame, text="Client ID:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
         self.client_id_entry = ttk.Entry(self.auth_frame, width=40, bootstyle="info")
         self.client_id_entry.grid(row=1, column=1, padx=5, pady=2)
+        self.client_id_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
         ttk.Label(self.auth_frame, text="Client Secret:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         self.client_secret_entry = ttk.Entry(self.auth_frame, width=40, show="*", bootstyle="info")
         self.client_secret_entry.grid(row=2, column=1, padx=5, pady=2)
+        self.client_secret_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
+        # Note: Client Secret é salvo automaticamente para conveniência em ambiente controlado
         ttk.Label(self.auth_frame, text="Token JSONPath:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
         self.token_path_entry = ttk.Entry(self.auth_frame, width=40, bootstyle="info")
         self.token_path_entry.insert(0, "$.access_token")
         self.token_path_entry.grid(row=3, column=1, padx=5, pady=2)
+        self.token_path_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
         self.auth_frame.grid_remove()
 
         # Seleção do CSV
@@ -240,6 +386,7 @@ class CSVPosterGUI:
         self.delimiter_entry.grid(row=6, column=1, sticky="w", padx=5)
         self.delimiter_entry.insert(0, getattr(self.settings, "DELIMITER", ","))
         self.delimiter_entry.bind("<KeyRelease>", self.refresh_preview)
+        self.delimiter_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
 
         # Body preview
         ttk.Label(frame, text="Body Preview (primeiras linhas do CSV):").grid(row=7, column=0, sticky="w", pady=(10,0), padx=5)
@@ -291,6 +438,9 @@ class CSVPosterGUI:
         self.body_preview.bind('<Configure>', on_text_configure)
 
         # Start e Stop buttons - moved to create_control_buttons method
+        
+        # Aplicar configurações salvas após criar todos os widgets
+        self.apply_saved_config()
 
     # =====================
     # Aba de Logs
@@ -452,6 +602,11 @@ Conteúdo dos Logs:
             self.auth_frame.grid()
         else:
             self.auth_frame.grid_remove()
+    
+    def toggle_auth_fields_and_save(self):
+        """Alterna campos de autenticação e salva configuração"""
+        self.toggle_auth_fields()
+        self.save_user_config()
 
     def load_csv(self):
         file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
@@ -659,7 +814,7 @@ Conteúdo dos Logs:
             self.start_button.config(state="disabled")
             self.pause_resume_button.config(state="normal", text="⏸️ Pausar")
             self.stop_button.config(state="normal", text="⏹️ Parar")
-            self.upload_status_label.config(text="🚀 Upload em execução...", bootstyle="success")
+            self.upload_status_label.config(text="🔄 Upload em execução...", bootstyle="success")
         elif self.upload_state == "paused":
             self.start_button.config(state="normal", text="▶️ Retomar")
             self.pause_resume_button.config(state="normal", text="▶️ Retomar")
