@@ -234,7 +234,7 @@ class CSVPosterGUI:
         self.log_text.pack(padx=5, pady=(0, 5), fill="both", expand=True)
         
         # Scrollbar para o texto dos logs
-        scrollbar = ttk.Scrollbar(self.log_text, orient="vertical", command=self.log_text.yview)
+        scrollbar = ttk.Scrollbar(self.log_frame, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
 
