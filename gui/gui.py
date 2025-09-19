@@ -243,7 +243,6 @@ class CSVPosterGUI:
 
     def log_with_level(self, msg, level="INFO"):
         """Log com nível específico (INFO, WARNING, ERROR, SUCCESS, DEBUG)"""
-        
         log_message_with_level(self.log_text, msg, level)
         self.update_log_info()
 
