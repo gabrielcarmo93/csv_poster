@@ -39,6 +39,7 @@ class CSVPosterGUI:
         # Variables
         self.method_var = ttk.StringVar(value=getattr(self.settings, "METHOD", "POST"))
         self.auth_var = ttk.BooleanVar(value=False)
+        self.save_json_var = ttk.BooleanVar(value=True)  # JSON saving enabled by default
         
         # Theme variables
         self.current_theme = ttk.StringVar(value="darkly")
@@ -187,6 +188,19 @@ class CSVPosterGUI:
                 self.token_path_entry.delete(0, "end")
                 self.token_path_entry.insert(0, config["token_path"])
             
+            # Configurações de salvamento JSON
+            if "json_save_path" in config:
+                self.json_save_path_entry.delete(0, "end")
+                self.json_save_path_entry.insert(0, config["json_save_path"])
+            else:
+                # Definir diretório padrão como "responses" no diretório do projeto
+                default_json_path = os.path.join(os.getcwd(), "responses")
+                self.json_save_path_entry.delete(0, "end")
+                self.json_save_path_entry.insert(0, default_json_path)
+            
+            if "save_json_enabled" in config:
+                self.save_json_var.set(config["save_json_enabled"])
+            
             # Mostrar/ocultar campos de autenticação baseado na configuração salva
             self.toggle_auth_fields()
             
@@ -211,6 +225,8 @@ class CSVPosterGUI:
                 "client_id": self.client_id_entry.get().strip() if hasattr(self, 'client_id_entry') else "",
                 "client_secret": self.client_secret_entry.get().strip() if hasattr(self, 'client_secret_entry') else "",
                 "token_path": self.token_path_entry.get().strip() if hasattr(self, 'token_path_entry') else "$.access_token",
+                "json_save_path": self.json_save_path_entry.get().strip() if hasattr(self, 'json_save_path_entry') else "",
+                "save_json_enabled": self.save_json_var.get() if hasattr(self, 'save_json_var') else True,
                 "last_updated": datetime.now().isoformat()
             }
             
@@ -388,15 +404,35 @@ class CSVPosterGUI:
         self.delimiter_entry.bind("<KeyRelease>", self.refresh_preview)
         self.delimiter_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
 
+        # Diretório para salvar respostas JSON
+        ttk.Label(frame, text="📁 Salvar Respostas JSON em:").grid(row=7, column=0, sticky="w", padx=5, pady=5)
+        json_path_frame = ttk.Frame(frame)
+        json_path_frame.grid(row=7, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
+        self.json_save_path_entry = ttk.Entry(json_path_frame, width=40, bootstyle="info")
+        self.json_save_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.json_save_path_entry.bind("<FocusOut>", lambda e: self.save_user_config())  # Salvar ao perder foco
+        # Definir diretório padrão
+        default_json_path = os.path.join(os.getcwd(), "responses")
+        self.json_save_path_entry.insert(0, default_json_path)
+        self.json_browse_button = ttk.Button(json_path_frame, text="📂 Procurar", bootstyle="outline-info", command=self.browse_json_save_path)
+        self.json_browse_button.pack(side="right")
+        
+        # Checkbox para habilitar/desabilitar salvamento de JSON
+        self.save_json_check = ttk.Checkbutton(
+            frame, text="💾 Salvar respostas HTTP como JSON", variable=self.save_json_var, 
+            command=self.save_user_config, bootstyle="round-toggle"
+        )
+        self.save_json_check.grid(row=8, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+
         # Body preview
-        ttk.Label(frame, text="Body Preview (primeiras linhas do CSV):").grid(row=7, column=0, sticky="w", pady=(10,0), padx=5)
+        ttk.Label(frame, text="Body Preview (primeiras linhas do CSV):").grid(row=9, column=0, sticky="w", pady=(10,0), padx=5)
         
         # Frame para conter o Text widget e scrollbars
         preview_frame = ttk.Frame(frame)
-        preview_frame.grid(row=8, column=0, columnspan=4, padx=5, pady=5, sticky="nsew")
+        preview_frame.grid(row=10, column=0, columnspan=4, padx=5, pady=5, sticky="nsew")
         
         # Configurar grid para permitir expansão
-        frame.grid_rowconfigure(8, weight=1)
+        frame.grid_rowconfigure(10, weight=1)
         frame.grid_columnconfigure(0, weight=1)
         preview_frame.grid_rowconfigure(0, weight=1)
         preview_frame.grid_columnconfigure(0, weight=1)
@@ -615,6 +651,15 @@ Conteúdo dos Logs:
             self.csv_label.config(text=file_path.split("/")[-1])
             self.refresh_preview()
 
+    def browse_json_save_path(self):
+        """Permite ao usuário selecionar diretório para salvar arquivos JSON"""
+        directory = filedialog.askdirectory(title="Selecione o diretório para salvar respostas JSON")
+        if directory:
+            self.json_save_path_entry.delete(0, "end")
+            self.json_save_path_entry.insert(0, directory)
+            self.save_user_config()
+            self.log(f"📁 Diretório JSON configurado: {directory}")
+
     def refresh_preview(self, event=None):
         self.settings = Settings()
         
@@ -702,7 +747,9 @@ Conteúdo dos Logs:
             delimiter=delimiter,
             method=method,
             concurrency=concurrency,
-            logger=self.log
+            logger=self.log,
+            json_save_path=self.json_save_path_entry.get().strip(),
+            save_json_enabled=self.save_json_var.get()
         )
 
         # Troca aba ativa para logs

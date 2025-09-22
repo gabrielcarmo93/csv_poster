@@ -1,6 +1,9 @@
 # services/uploader_service.py
 import csv
 import asyncio
+import os
+import json
+from datetime import datetime
 from enum import Enum
 from clients.http_client import HTTPClient
 from config import Settings
@@ -16,7 +19,7 @@ class UploaderService:
     com controle de concorrência e suporte a pause/resume.
     """
 
-    def __init__(self, file_path, auth_token, endpoint_url, delimiter=None, method=None, concurrency=None, logger=None):
+    def __init__(self, file_path, auth_token, endpoint_url, delimiter=None, method=None, concurrency=None, logger=None, json_save_path=None, save_json_enabled=True):
         settings = Settings()
         
         self.file_path = file_path or settings.default_csv_file
@@ -26,6 +29,8 @@ class UploaderService:
         self.auth_token = auth_token
         self.logger = logger
         self.concurrency = concurrency or settings.default_concurrency
+        self.json_save_path = json_save_path or os.path.join(os.getcwd(), "responses")
+        self.save_json_enabled = save_json_enabled
         
         # Upload control
         self.state = UploadState.STOPPED
@@ -35,6 +40,77 @@ class UploaderService:
         self.current_index = 0
         self.total_rows = 0
         self.rows_data = []
+        
+        # Criar diretório de respostas se não existir
+        if self.save_json_enabled and not os.path.exists(self.json_save_path):
+            os.makedirs(self.json_save_path, exist_ok=True)
+
+    def generate_json_filename(self, row_data, current_row):
+        """
+        Gera nome de arquivo JSON baseado nos dados da linha do CSV.
+        Formato: key=value_key=value_...json
+        """
+        if not self.save_json_enabled:
+            return None
+            
+        try:
+            # Converter dados da linha em formato key=value
+            filename_parts = []
+            for key, value in row_data.items():
+                # Limpar chaves e valores para nome de arquivo seguro
+                clean_key = str(key).replace("=", "-").replace("_", "-").replace(" ", "-")
+                clean_value = str(value).replace("=", "-").replace("_", "-").replace(" ", "-").replace("/", "-").replace("\\", "-")
+                # Limitar o tamanho para evitar nomes muito longos
+                clean_key = clean_key[:20]
+                clean_value = clean_value[:30]
+                filename_parts.append(f"{clean_key}={clean_value}")
+            
+            # Juntar com underscores e adicionar timestamp se necessário
+            filename = "_".join(filename_parts)
+            
+            # Limitar tamanho total do nome
+            if len(filename) > 200:
+                filename = filename[:200]
+            
+            # Adicionar número da linha e timestamp para garantir unicidade
+            timestamp = datetime.now().strftime("%H%M%S")
+            filename = f"{filename}.json"
+            
+            return filename
+            
+        except Exception as e:
+            # Fallback para nome simples se houver erro
+            timestamp = datetime.now().strftime("%H%M%S")
+            return f"response_linha{current_row}_{timestamp}.json"
+
+    def save_response_json(self, row_data, response_data, current_row):
+        """
+        Salva a resposta HTTP em arquivo JSON.
+        """
+        if not self.save_json_enabled:
+            return
+            
+        try:
+            filename = self.generate_json_filename(row_data, current_row)
+            filepath = os.path.join(self.json_save_path, filename)
+            
+            # Criar dados completos para salvar
+            json_data = {
+                "row_number": current_row,
+                "timestamp": datetime.now().isoformat(),
+                "csv_data": row_data,
+                "http_response": response_data
+            }
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, indent=2, ensure_ascii=False)
+                
+            if self.logger:
+                self.logger(f"💾 Resposta salva: {filename}")
+                
+        except Exception as e:
+            if self.logger:
+                self.logger(f"⚠️ Erro ao salvar JSON linha {current_row}: {e}")
 
     def run_upload(self):
         """
@@ -171,6 +247,30 @@ class UploaderService:
                 
                 # Fazer a requisição HTTP
                 async with session.post(self.endpoint_url, json=row, headers=headers) as response:
+                    # Capturar dados da resposta para salvar em JSON
+                    response_data = {
+                        "status_code": response.status,
+                        "headers": dict(response.headers),
+                        "url": str(response.url),
+                        "method": "POST"
+                    }
+                    
+                    # Tentar capturar o corpo da resposta
+                    try:
+                        response_text = await response.text()
+                        # Tentar parsear como JSON, senão salvar como texto
+                        try:
+                            response_data["body"] = json.loads(response_text)
+                        except json.JSONDecodeError:
+                            response_data["body"] = response_text
+                    except Exception:
+                        response_data["body"] = "Erro ao capturar corpo da resposta"
+                    
+                    # Salvar resposta em JSON se habilitado
+                    if self.save_json_enabled:
+                        self.save_response_json(row, response_data, current_row)
+                    
+                    # Log baseado no status
                     if response.status in [200, 201]:
                         if self.logger:
                             self.logger(f"✅ Linha {current_row}/{total_rows}: Status {response.status}")
