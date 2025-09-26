@@ -8,6 +8,12 @@ from enum import Enum
 from clients.http_client import HTTPClient
 from config import Settings
 
+# Opcional: tipo de AuthService para hints (evita import circular em runtime)
+try:
+    from services.auth_service import AuthService  # type: ignore
+except Exception:  # pragma: no cover
+    AuthService = None  # fallback para evitar erro se ordem de import variar
+
 class UploadState(Enum):
     STOPPED = "stopped"
     RUNNING = "running"
@@ -19,18 +25,21 @@ class UploaderService:
     com controle de concorrência e suporte a pause/resume.
     """
 
-    def __init__(self, file_path, auth_token, endpoint_url, delimiter=None, method=None, concurrency=None, logger=None, json_save_path=None, save_json_enabled=True):
+    def __init__(self, file_path, auth_token, endpoint_url, delimiter=None, method=None, concurrency=None, logger=None, json_save_path=None, save_json_enabled=True, auth_service=None, max_token_retries=1):
         settings = Settings()
-        
-        self.file_path = file_path or settings.default_csv_file
-        self.delimiter = delimiter or settings.default_csv_delimiter
-        self.method = (method or settings.default_method).upper()
+
+        # Ajustar para usar atributos definidos em Settings
+        self.file_path = file_path  # Settings não define arquivo padrão de CSV
+        self.delimiter = delimiter or getattr(settings, 'DELIMITER', ';')
+        self.method = (method or getattr(settings, 'METHOD', 'POST')).upper()
         self.endpoint_url = endpoint_url
         self.auth_token = auth_token
         self.logger = logger
-        self.concurrency = concurrency or settings.default_concurrency
+        self.concurrency = concurrency or getattr(settings, 'CONCURRENCY', 5)
         self.json_save_path = json_save_path or os.path.join(os.getcwd(), "responses")
         self.save_json_enabled = save_json_enabled
+        self.auth_service = auth_service  # Injeta serviço de autenticação (pode ser None)
+        self.max_token_retries = max_token_retries
         
         # Upload control
         self.state = UploadState.STOPPED
@@ -234,7 +243,14 @@ class UploaderService:
                 self.logger(f"❌ Erro fatal no run_upload: {e}")
 
     async def _send_row(self, session, row, semaphore, current_row, total_rows):
-        """Envia uma única linha para o endpoint com controle de semáforo"""
+        """Envia uma única linha.
+
+        Fluxo 401:
+        - Faz request
+        - Se 401 e auth_service existe: invalida e tenta refresh_token()
+        - Reenvia UMA vez se token novo
+        - Se continuar 401: pausa upload para intervenção
+        """
         async with semaphore:
             try:
                 # Verificar se ainda deve processar (pode ter pausado durante await)
@@ -246,37 +262,69 @@ class UploaderService:
                     headers["Authorization"] = f"Bearer {self.auth_token}"
                 
                 # Fazer a requisição HTTP
-                async with session.post(self.endpoint_url, json=row, headers=headers) as response:
-                    # Capturar dados da resposta para salvar em JSON
-                    response_data = {
-                        "status_code": response.status,
-                        "headers": dict(response.headers),
-                        "url": str(response.url),
-                        "method": "POST"
-                    }
-                    
-                    # Tentar capturar o corpo da resposta
-                    try:
-                        response_text = await response.text()
-                        # Tentar parsear como JSON, senão salvar como texto
+                # Função interna para executar a chamada HTTP e montar response_data
+                async def do_request():
+                    async with session.post(self.endpoint_url, json=row, headers=headers) as response:
+                        response_data = {
+                            "status_code": response.status,
+                            "headers": dict(response.headers),
+                            "url": str(response.url),
+                            "method": "POST"
+                        }
                         try:
-                            response_data["body"] = json.loads(response_text)
-                        except json.JSONDecodeError:
-                            response_data["body"] = response_text
-                    except Exception:
-                        response_data["body"] = "Erro ao capturar corpo da resposta"
-                    
-                    # Salvar resposta em JSON se habilitado
-                    if self.save_json_enabled:
-                        self.save_response_json(row, response_data, current_row)
-                    
-                    # Log baseado no status
-                    if response.status in [200, 201]:
+                            response_text = await response.text()
+                            try:
+                                response_data["body"] = json.loads(response_text)
+                            except json.JSONDecodeError:
+                                response_data["body"] = response_text
+                        except Exception:
+                            response_data["body"] = "Erro ao capturar corpo da resposta"
+                        return response_data
+
+                # Primeira tentativa
+                response_data = await do_request()
+
+                # Verificar 401
+                if response_data.get("status_code") == 401 and self.auth_service:
+                    if self.logger:
+                        self.logger(f"🔐 401 na linha {current_row}. Renovando token...")
+                    # Invalida e tenta renovar
+                    self.auth_service.invalidate_token()
+                    new_token = self.auth_service.refresh_token()
+                    attempt = 0
+                    while attempt < self.max_token_retries and new_token:
+                        attempt += 1
+                        self.auth_token = new_token
+                        headers["Authorization"] = f"Bearer {self.auth_token}"
                         if self.logger:
-                            self.logger(f"✅ Linha {current_row}/{total_rows}: Status {response.status}")
-                    else:
+                            self.logger(f"🔁 Retry linha {current_row} (tentativa {attempt}) com novo token")
+                        response_data = await do_request()
+                        if response_data.get("status_code") != 401:
+                            break
+                        # Se ainda 401, tentar renovar novamente (evita loop infinito)
+                        self.auth_service.invalidate_token()
+                        new_token = self.auth_service.refresh_token()
+
+                    if response_data.get("status_code") == 401:
                         if self.logger:
-                            self.logger(f"⚠️ Linha {current_row}/{total_rows}: Status {response.status}")
+                            self.logger(f"❌ 401 persistente na linha {current_row}. Pausando upload para intervenção.")
+                        self.state = UploadState.PAUSED
+
+                # Salvar resposta em JSON se habilitado
+                if self.save_json_enabled:
+                    self.save_response_json(row, response_data, current_row)
+
+                # Log final
+                status = response_data.get("status_code")
+                if status in [200, 201]:
+                    if self.logger:
+                        self.logger(f"✅ Linha {current_row}/{total_rows}: Status {status}")
+                elif status == 401:
+                    if self.logger:
+                        self.logger(f"🛑 Linha {current_row}/{total_rows}: 401 após tentativas de renovação")
+                else:
+                    if self.logger:
+                        self.logger(f"⚠️ Linha {current_row}/{total_rows}: Status {status}")
                             
             except Exception as e:
                 if self.logger:
