@@ -9,7 +9,7 @@ def main():
         title="CSV to API Poster",
         themename="darkly",
         resizable=(True, True),
-        size=(1000, 800)
+        size=(1000, 900)
     )
     
     app = CSVPosterGUI(root)
