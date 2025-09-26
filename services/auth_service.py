@@ -1,5 +1,6 @@
 # services/auth_service.py
 import time
+import threading
 import requests
 import urllib3
 from clients.http_client import HTTPClient
@@ -18,6 +19,7 @@ class AuthService:
 
     def __init__(self, auth_url=None, client_id=None, client_secret=None, token_json_path="$.access_token", logger=None, log_widget=None):
         self._cached_token = None
+        self._token_lock = threading.Lock()  # Evita múltiplas renovações simultâneas
         self.http_client = HTTPClient()
         self.auth_url = auth_url
         self.client_id = client_id
@@ -53,8 +55,9 @@ class AuthService:
         )
 
     def get_token(self, auth_url, client_id, client_secret, token_path="$.access_token", expires_path="$.expires_in"):
-        """
-        Retorna um token válido, reutilizando do cache se ainda não expirou.
+        """Retorna um token válido, reutilizando do cache se ainda não expirou.
+
+        NÃO usa lock: método de baixo nível. Para chamadas concorrentes preferir refresh_token().
         """
         if self._cached_token and not self._cached_token.is_expired():
             self.log("🔑 Usando token em cache")
@@ -68,7 +71,7 @@ class AuthService:
         }
 
         try:
-            response = requests.post(auth_url, data=payload, timeout=5, verify=False)
+            response = requests.post(auth_url, data=payload, timeout=10, verify=False)
             response.raise_for_status()
             json_data = response.json()
             token_value = self.http_client.extract_token(json_data, token_path)
@@ -77,7 +80,6 @@ class AuthService:
             if not token_value or expires_in is None:
                 raise ValueError("Token ou expires_in não encontrados na resposta.")
 
-            # Cria Token com timestamp de expiração
             self._cached_token = Token(token_value, expires_in)
             self.log(f"✅ Novo token obtido, expira em {expires_in} segundos")
             return self._cached_token.value
@@ -89,3 +91,27 @@ class AuthService:
         """Invalida o token em cache, forçando renovação na próxima chamada."""
         self._cached_token = None
         self.log("⚠️ Token em cache invalidado")
+
+    def refresh_token(self):
+        """Garante que apenas uma thread/fluxo renove o token simultaneamente.
+
+        Fluxo:
+        - Se token válido no cache: retorna
+        - Caso contrário: tenta obter novo token com lock
+        - Em caso de falha: retorna None
+        """
+        if self._cached_token and not self._cached_token.is_expired():
+            return self._cached_token.value
+
+        with self._token_lock:
+            # Checar novamente dentro do lock (double-checked locking)
+            if self._cached_token and not self._cached_token.is_expired():
+                return self._cached_token.value
+
+            return self.get_token(
+                self.auth_url,
+                self.client_id,
+                self.client_secret,
+                self.token_json_path,
+                self.expires_json_path
+            )
