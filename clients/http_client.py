@@ -93,6 +93,59 @@ Response Text:
             print(f"Falha ao escrever log de erro: {e}")
 
     @staticmethod
+    async def send_request_with_session(session, method, url, data=None, token=None):
+        """
+        Envia uma requisição HTTP assíncrona usando uma sessão aiohttp existente.
+        Suporta POST e GET. Se token for informado, usa Bearer Authorization.
+        Em caso de erro, salva o cURL e informações do erro em arquivo.
+        """
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        method = method.upper()
+        
+        # Gerar comando cURL para logging
+        curl_command = HTTPClient._generate_curl_command(method, url, headers, data)
+
+        try:
+            if method == "POST":
+                async with session.post(url, json=data, headers=headers) as resp:
+                    text = await resp.text()
+                    
+                    # Verificar se houve erro HTTP
+                    if resp.status >= 400:
+                        error_info = f"HTTP {resp.status}: {resp.reason}"
+                        HTTPClient._log_error_to_file(curl_command, error_info, text)
+                    
+                    return resp, text
+                    
+            elif method == "GET":
+                async with session.get(url, params=data, headers=headers) as resp:
+                    text = await resp.text()
+                    
+                    # Verificar se houve erro HTTP
+                    if resp.status >= 400:
+                        error_info = f"HTTP {resp.status}: {resp.reason}"
+                        HTTPClient._log_error_to_file(curl_command, error_info, text)
+                    
+                    return resp, text
+            else:
+                raise ValueError(f"Método HTTP desconhecido: {method}")
+                
+        except aiohttp.ClientError as e:
+            # Erro de conexão/cliente
+            error_info = f"aiohttp.ClientError: {str(e)}"
+            HTTPClient._log_error_to_file(curl_command, error_info)
+            raise
+            
+        except Exception as e:
+            # Outros erros
+            error_info = f"Exception: {type(e).__name__}: {str(e)}"
+            HTTPClient._log_error_to_file(curl_command, error_info)
+            raise
+
+    @staticmethod
     async def send_request(method, url, data=None, token=None):
         """
         Envia uma requisição HTTP assíncrona usando aiohttp.

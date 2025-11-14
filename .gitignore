@@ -4,3 +4,4 @@ build
 dist
 main.spec
 logs
+user_config.json
